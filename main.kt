@@ -12,9 +12,11 @@ fun main(args: Array<String>)
     if (args.size > 0)
         return;
 
+    server.get("/", {req: Request, res: Response ->
+        res.send("Hello World");
+    });
+
     server.start({
         println("Server is running on port " + server.port());
     });
-
-    server.close();
 }

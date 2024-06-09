@@ -1,15 +1,35 @@
 package patrick.server;
 
+import java.io.InputStream;
 import java.net.ServerSocket;
 import java.net.InetSocketAddress;
-import java.io.InputStream;
-import patrick.headers_iterator.HeadersIterator;
+import java.time.LocalDateTime;
 
-const val HTTP_VERSION_LENGTH: Int = 11;
+import patrick.headers_iterator.HeadersIterator;
+import patrick.request.Request;
+import patrick.http_methods.HTTPMethod;
+import patrick.response.Response;
+
+const val HTTP_VERSION_LENGTH: Int = 11; // " HTTP/1.1
+
+public typealias Response = Response;
+public typealias Request = Request;
 
 class Server
 {
     private val _server: ServerSocket = ServerSocket();
+
+    private val get_map: HashMap<String, (Request, Response) -> Unit> 
+                        = HashMap<String, (Request, Response) -> Unit>();
+
+    private val post_map: HashMap<String, (Request, Response) -> Unit> 
+                        = HashMap<String, (Request, Response) -> Unit>();
+
+    private val patch_map: HashMap<String, (Request, Response) -> Unit> 
+                        = HashMap<String, (Request, Response) -> Unit>();
+
+    private val delete_map: HashMap<String, (Request, Response) -> Unit> 
+                        = HashMap<String, (Request, Response) -> Unit>();
 
     fun getInstance(): ServerSocket { return _server; }
 
@@ -23,14 +43,46 @@ class Server
         }
     }
 
-    fun start( callback: () -> Unit = {} )
+    fun get(route: String, callback_func: (Request, Response) -> Unit)
     {
-        callback();
-        this.run();
+        if (get_map.containsKey(route))
+            return;
+
+        get_map.put(route, callback_func);
     }
 
-    private fun run()
+    fun post(route: String, callback_func: (Request, Response) -> Unit)
     {
+        if (post_map.containsKey(route))
+            return;
+        
+        post_map.put(route, callback_func);
+    }
+
+    fun patch(route: String, callback_func: (Request, Response) -> Unit)
+    {
+        if (patch_map.containsKey(route))
+            return;
+        
+        patch_map.put(route, callback_func);
+    }
+
+    fun delete(route: String, callback_func: (Request, Response) -> Unit)
+    {
+        if (delete_map.containsKey(route))
+            return;
+        
+        delete_map.put(route, callback_func);
+    }
+
+    fun start( callback: () -> Unit = {} )
+    {
+        this.run(callback);
+    }
+
+    private fun run( callback: () -> Unit = {} )
+    {
+        callback();
         while (true)
         {
             val client = _server.accept();
@@ -66,7 +118,43 @@ class Server
                 print( b.toInt().toChar() );
             }
 
-            this.parseRequest(buf);
+            var req: Request? = this.parseRequest(buf);
+
+            if (req == null)
+                return;
+            
+            callRoute(req!!);
+        }
+    }
+
+    private fun callRoute(req: Request)
+    {
+        when (req.method)
+        {
+            HTTPMethod.GET -> {
+                val func = get_map.get(req.route);
+                if (func == null)
+                    return;
+                
+                var res: Response = Response(0, LocalDateTime.now(), "", "", "", 0);
+                func(req, res);
+            }
+
+            HTTPMethod.POST -> {
+
+            }
+
+            HTTPMethod.PATCH -> {
+
+            }
+
+            HTTPMethod.DELETE -> {
+
+            }
+
+            else -> {
+                return;
+            }
         }
     }
 
@@ -132,7 +220,6 @@ class Server
             connection, content_type, content_length
             );
         
-        println(content_length);
         return req;
     }
 
@@ -170,7 +257,7 @@ class Server
     {
         var route: StringBuilder = StringBuilder();
         var curr_pos = pos;
-        while ( data.get(curr_pos) != 32.toByte() )
+        while ( curr_pos < data.size && data.get(curr_pos) != 32.toByte() )
         {
             route.append( data.get(pos).toInt().toChar() );
             curr_pos++;
@@ -203,29 +290,4 @@ class Server
 
         return ret.toTypedArray();
     }
-}
-
-
-
-class Request
-(
-    var method: HTTPMethod,
-    var route: String,
-    var host: String,
-    var user_agent: String,
-    var accept: Array<String>,
-    var accept_language: Array<String>,
-    var accept_encoding: Array<String>,
-    var connection: String,
-    var content_type: String,
-    var content_length: Int,
-)
-
-enum class HTTPMethod
-{
-    None,
-    GET,
-    POST,
-    PATCH,
-    DELETE
 }
