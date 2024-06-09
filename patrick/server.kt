@@ -1,8 +1,9 @@
-package patrick;
+package patrick.server;
 
 import java.net.ServerSocket;
 import java.net.InetSocketAddress;
 import java.io.InputStream;
+import patrick.headers_iterator.HeadersIterator;
 
 const val HTTP_VERSION_LENGTH: Int = 11;
 
@@ -39,7 +40,7 @@ class Server
                 var stream = client.getInputStream();
                 // if (stream.available() <= 0)
                 //     break;
-            
+
                 this.readInputStream(stream);
             }
         }
@@ -61,7 +62,7 @@ class Server
             {
                 if ( b < 0 )
                     return;
-                
+
                 print( b.toInt().toChar() );
             }
 
@@ -69,18 +70,61 @@ class Server
         }
     }
 
-    private fun parseRequest( data: ByteArray ): Request
+    private fun parseRequest( data: ByteArray ): Request?
     {
         var method: HTTPMethod = HTTPMethod.None;
         var route: String = "";
         var host: String = "";
         var user_agent: String = "";
-        var accept: Array<String> = arrayOf("*/*");
-        var accept_language: String = "";
-        var accept_encoding: String = "";
+        var accept: Array<String> = emptyArray<String>();
+        var accept_language: Array<String> = emptyArray<String>();
+        var accept_encoding: Array<String> = emptyArray<String>();
         var connection: String = "";
         var content_type: String = "";
         var content_length: Int = 0;
+
+        // find method
+        if ( data[0] != 'G'.code.toByte()/* G(ET) */
+            && data[0] != 'P'.code.toByte() /* P(OST) or P(ATCH) */
+            && data[0] != 'D'.code.toByte() /* D(ELETE) */
+            )
+            {
+                return null;
+            }
+
+
+        method = this.parseMethod(data);
+
+        var pos: Int = method.toString().length + 1;
+        route = this.parseRoute(data, pos);
+
+        pos = pos + route.length + HTTP_VERSION_LENGTH;
+
+        var headers: ByteArray = ByteArray(data.size - pos);
+
+        for ( i in 0..headers.size-1 )
+        {
+            headers[i] = data[i + pos];
+        }
+
+        var headersIter: HeadersIterator = HeadersIterator(headers);
+        var next = headersIter.next();
+        while ( next != null )
+        {
+            when (next.first)
+            {
+                0 -> host = next.second;
+                1 -> user_agent = next.second;
+                2 -> accept = parseValues(next.second);
+                3 -> accept_language = parseValues(next.second);
+                4 -> accept_encoding = parseValues(next.second);
+                5 -> connection = next.second;
+                6 -> content_type = next.second;
+                7 -> content_length = next.second.toInt();
+                else -> {}
+            }
+            next = headersIter.next();
+        }
 
         var req = Request(
             method, route, host, user_agent,
@@ -88,28 +132,7 @@ class Server
             connection, content_type, content_length
             );
         
-        // find method
-        if ( data[0] != 71.toByte() /* G(ET) */
-            && data[0] != 80.toByte() /* P(OST) or P(ATCH) */
-            && data[0] != 68.toByte() /* D(ELETE) */
-            )
-            {
-                return req;
-            }
-
-        
-        method = this.parseMethod(data);
-
-        var pos: Int = method.toString().length + 1;
-        route = this.parseRoute(data, pos);
-
-        pos = pos + route.length + HTTP_VERSION_LENGTH;
-        
-        
-        println(method);
-        println(route);
-        println(data[pos].toInt().toChar());
-
+        println(content_length);
         return req;
     }
 
@@ -121,7 +144,7 @@ class Server
         }
 
         var str: StringBuilder = StringBuilder();
-        
+
         for ( i in 0..5 )
         {
             str.append(data[i].toInt().toChar());
@@ -132,10 +155,10 @@ class Server
 
         else if ( str.substring(0, 5) == "POST " )
             return HTTPMethod.POST;
-        
+
         else if ( str.substring(0, 6) == "PATCH " )
             return HTTPMethod.PATCH;
-        
+
         else if ( str.substring(0, 7) == "DELETE " )
             return HTTPMethod.DELETE;
 
@@ -143,7 +166,7 @@ class Server
             return HTTPMethod.None;
     }
 
-    private fun parseRoute(data: ByteArray, pos: Int): String
+    private fun parseRoute( data: ByteArray, pos: Int ): String
     {
         var route: StringBuilder = StringBuilder();
         var curr_pos = pos;
@@ -153,6 +176,32 @@ class Server
             curr_pos++;
         }
         return route.toString();
+    }
+
+    private fun parseValues(values: String): Array<String>
+    {
+        val ret: ArrayList<String> = ArrayList<String>();
+        val current: StringBuilder = StringBuilder();
+        for ( i in 0..values.length-1 )
+        {
+            val char: Char = values.get(i);
+            if (char != ',')
+            {
+                if (char == ' ')
+                    continue;
+
+                current.append(values.get(i));
+                continue;
+            }
+
+            ret.add(current.toString());
+            current.clear();
+        }
+
+        if (current.length > 0)
+            ret.add(current.toString());
+
+        return ret.toTypedArray();
     }
 }
 
@@ -165,8 +214,8 @@ class Request
     var host: String,
     var user_agent: String,
     var accept: Array<String>,
-    var accept_language: String,
-    var accept_encoding: String,
+    var accept_language: Array<String>,
+    var accept_encoding: Array<String>,
     var connection: String,
     var content_type: String,
     var content_length: Int,
