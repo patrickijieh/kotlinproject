@@ -1,16 +1,22 @@
 package patrick.server;
 
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.ServerSocket;
 import java.net.InetSocketAddress;
-import java.time.LocalDateTime;
+import java.time.ZonedDateTime;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
+
+import kotlinx.coroutines.*;
 
 import patrick.headers_iterator.HeadersIterator;
 import patrick.request.Request;
-import patrick.http_methods.HTTPMethod;
+import patrick.http.HTTPMethod;
+import patrick.http.StatusCode;
 import patrick.response.Response;
 
-const val HTTP_VERSION_LENGTH: Int = 11; // " HTTP/1.1
+const val HTTP_VERSION_LENGTH: Int = 11; // " HTTP/1.1\r\n"
 
 public typealias Response = Response;
 public typealias Request = Request;
@@ -89,11 +95,12 @@ class Server
             if ( client != null )
             {
                 println( "Client connected: " + client.inetAddress.hostAddress );
-                var stream = client.getInputStream();
+                var input = client.getInputStream();
+                var output = client.getOutputStream();
                 // if (stream.available() <= 0)
                 //     break;
 
-                this.readInputStream(stream);
+                this.readInputStream(input, output);
             }
         }
     }
@@ -103,13 +110,13 @@ class Server
         _server.close();
     }
 
-    private fun readInputStream( stream: InputStream )
+    private fun readInputStream( input: InputStream, output: OutputStream )
     {
-        while ( stream.available() > 0 )
+        while ( input.available() > 0 )
         {
-            var size = stream.available();
+            var size = input.available();
             var buf = Array<Byte>(size) { 0 }.toByteArray();
-            stream.read(buf);
+            input.read(buf);
             for ( b in buf )
             {
                 if ( b < 0 )
@@ -123,38 +130,7 @@ class Server
             if (req == null)
                 return;
             
-            callRoute(req!!);
-        }
-    }
-
-    private fun callRoute(req: Request)
-    {
-        when (req.method)
-        {
-            HTTPMethod.GET -> {
-                val func = get_map.get(req.route);
-                if (func == null)
-                    return;
-                
-                var res: Response = Response(0, LocalDateTime.now(), "", "", "", 0);
-                func(req, res);
-            }
-
-            HTTPMethod.POST -> {
-
-            }
-
-            HTTPMethod.PATCH -> {
-
-            }
-
-            HTTPMethod.DELETE -> {
-
-            }
-
-            else -> {
-                return;
-            }
+            callRoute(req!!, output);
         }
     }
 
@@ -203,9 +179,9 @@ class Server
             {
                 0 -> host = next.second;
                 1 -> user_agent = next.second;
-                2 -> accept = parseValues(next.second);
-                3 -> accept_language = parseValues(next.second);
-                4 -> accept_encoding = parseValues(next.second);
+                2 -> accept = parseKeyValues(next.second);
+                3 -> accept_language = parseKeyValues(next.second);
+                4 -> accept_encoding = parseKeyValues(next.second);
                 5 -> connection = next.second;
                 6 -> content_type = next.second;
                 7 -> content_length = next.second.toInt();
@@ -265,7 +241,7 @@ class Server
         return route.toString();
     }
 
-    private fun parseValues(values: String): Array<String>
+    private fun parseKeyValues( values: String ): Array<String>
     {
         val ret: ArrayList<String> = ArrayList<String>();
         val current: StringBuilder = StringBuilder();
@@ -289,5 +265,94 @@ class Server
             ret.add(current.toString());
 
         return ret.toTypedArray();
+    }
+
+    private fun callRoute(req: Request, output: OutputStream)
+    {
+        when (req.method)
+        {
+            HTTPMethod.GET -> {
+                val func = get_map.get(req.route);
+                if (func == null)
+                    return;
+                
+                val status: Int = 200;
+                val date: ZonedDateTime = ZonedDateTime.now();
+                val server: String = "Kotlin Server/1.0.0";
+                val modified: ZonedDateTime = ZonedDateTime.now();
+                val connection: String = "Closed";
+                val content_type: String = "text/plain";
+                val content_length: Int = 0;
+                var body: String = "";
+                var res: Response = Response(status, date, server, modified,
+                                                connection, content_type, content_length, body);
+                
+                var initial_time = LocalTime.now();
+                runBlocking {
+                    launch {
+                        while (!res.ready) {
+                            var curr = LocalTime.now();
+                            if (curr.minusSeconds(20).compareTo(initial_time) >= 0)
+                                res.brick();
+                        }
+                        val str: String = stringifyResponse(res);
+                        sendOutputStream(str, output);
+                    }
+                    func(req, res);
+                }
+                
+            }
+
+            HTTPMethod.POST -> {
+
+            }
+
+            HTTPMethod.PATCH -> {
+
+            }
+
+            HTTPMethod.DELETE -> {
+
+            }
+
+            else -> {
+                return;
+            }
+        }
+    }
+
+    private fun stringifyResponse( res: Response ): String
+    {
+        println("FULL SEND IT");
+        var s: StringBuilder = StringBuilder();
+        val code: StatusCode = StatusCode.fromInt(res.status_code)!!;
+
+        val formatter = DateTimeFormatter.ofPattern("E, dd MMM yyyy HH:mm:ss");
+        val date = res.date.format(formatter);
+        val mod = res.modified.format(formatter);
+
+        s.append("HTTP/1.1 ${res.status_code} ${code.toString()}\n");
+        s.append("Date: ${date}\n");
+        s.append("Server: ${res.server}\n");
+        s.append("Last-Modified: ${mod}\n");
+        s.append("Content-Length: ${res.content_length}\n");
+        s.append("Content-Type: ${res.content_type}\n");
+        s.append("Connection: ${res.connection}\n");
+        s.append("\n");
+        s.append(res.body);
+        s.append("\r\n");
+
+        return s.toString();
+    }
+
+    private fun sendOutputStream( str: String, output: OutputStream )
+    {
+        val bytes = Array<Byte>(str.length) { 0 }.toByteArray();
+        for ( i in 0..str.length-1 )
+        {
+            bytes[i] = str.get(i).code.toByte();
+        }
+
+        output.write(bytes);
     }
 }

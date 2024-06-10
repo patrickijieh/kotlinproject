@@ -13,7 +13,7 @@ fun main(args: Array<String>)
         return;
 
     server.get("/", {req: Request, res: Response ->
-        res.send("Hello World");
+        res.send("Hello World!");
     });
 
     server.start({

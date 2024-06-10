@@ -1,6 +1,6 @@
 package patrick.request;
 
-import patrick.http_methods.HTTPMethod;
+import patrick.http.HTTPMethod;
 
 class Request
 (
